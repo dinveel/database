@@ -1,0 +1,61 @@
+Легкие запросы:
+
+1)SELECT * FROM subcontractors as s WHERE (s.area_id_len_obl=4716);
+Позволяет получить номера телефонов всех партнеров в данном районе (4716 – Тосненский район Ленинградской обл.). В сочетании с оператором «и» (SELECT * FROM subcontractors AS s WHERE (s.area_id_len_obl>4699 AND s.area_id_len_obl<4800 ) ) позволяет получить номера телефонов всех партнёров в регионе (47-й регион – Ленинградская обл.).
+
+2)SELECT * FROM subcontractors as s WHERE (s.subcontractor = 'OOO"Altair"');
+Запрос позволяет глобальному диспетчеру получить номер телефона партнёра. Он может понадобится для уточнения информации по текущему количеству свободной техники, состоянию работ по контракту или иным орг. вопросам.
+
+3)SELECT s.id_contract FROM contracts AS s WHERE (s.date_of_end = '2017-06-01');
+Позволяет диспетчеру получить информацию о том, какие контракты завершаются в указанную дату (уточнение сведений по оплате или состоянию работ на объекте) и, при необходимости, приостановить работы или увеличить количество техники для их ускорения.
+
+4)SELECT * FROM type_of_work as tow NATURAL INNER JOIN (SELECT * FROM technique as t NATURAL INNER JOIN type_of_work_tech as towt) AS fee WHERE (fee.amount_of_tech_is_needed >1);
+Позволяют диспетчеру ответить заказчику, какая техника и в каком количестве понадобится для проведения данного вида работ.
+
+
+
+Средние запросы:
+
+1)SELECT s.subcontractor FROM subcontractors as s NATURAL INNER JOIN (SELECT * FROM contracts as c NATURAL INNER JOIN contract_subcontractor as cs) as foo WHERE (foo.stage_of_work = 'in progress');
+Позволяет скорректировать маршрут автозаправщика для обеспечения топливом техники на объектах, работы на которых ведутся по действующим контрактам.
+Пояснение: Запрос подразумевает контракты, действующие НА МОМЕНТ ЗАПРОСА.
+
+2)SELECT s.subcontractor,foo.amount_of_tech FROM subcontractors AS s NATURAL INNER JOIN subcontractors_technique_amount AS foo WHERE (foo.amount_of_tech > 0 AND foo.id_technique = 2);
+Позволяет выяснить количество определенного вида техники у субподрядчика.
+
+3)SELECT DISTINCT c.id_contract,foo.type_of_work FROM contracts as c NATURAL INNER JOIN (SELECT * FROM type_of_work_tech as towt NATURAL INNER JOIN type_of_work as tow) as foo ORDER BY c.id_contract;
+Позволяет диспетчеру просмотреть виды выполняемых работ по контрактам. (и количество задействованной техники, при наличии столбца foo.technique в запросе)
+
+
+
+Сложные запросы:
+
+1)SELECT foo1.id_contract,foo1.id_technique,foo1.type_of_work,(fee1.amount_of_tech - foo1.amount_of_tech_is_needed) as result FROM 
+(SELECT c.id_contract,c.stage_of_work,foo.id_technique,foo.amount_of_tech_is_needed,foo.type_of_work FROM contracts as c  NATURAL INNER JOIN 
+(SELECT * FROM type_of_work_tech NATURAL INNER JOIN type_of_work) as foo) as foo1 LEFT JOIN (SELECT * FROM subcontractors_technique_amount NATURAL INNER JOIN 
+(SELECT * FROM contract_subcontractor NATURAL INNER JOIN subcontractors) AS fee) AS fee1 ON (fee1.id_contract = foo1.id_contract AND fee1.id_technique = foo1.id_technique)
+WHERE (foo1.stage_of_work = 'in progress');
+Позволяет оператору(диспетчеру) просмотреть наличие свободной техники у компании, которые в данный момент выполняют контракты (подразумеваем, что диспетчер знает, какой контракт в данный момент выполняет субподрядчик). Для чего понадобится? В будущем, если какой-либо субподрядчик не будет в состоянии выполнить контракт из-за нехватки определенного вида техники, то данный запрос позволит посмотреть технику у всех субподрядчиков, с учетом того факта, что они могут выполнять заказ на данный момент времени. (количество техники у субподрядчика, который не выполняет контракт, можно посмотреть, найдя кол-во техники, которое находится в его распоряжении(полное количество))
+
+2)SELECT foo1.id_contract,foo1.id_technique,fee1.technique,foo1.type_of_work,(fee1.amount_of_tech - foo1.amount_of_tech_is_needed) as tech_left FROM 
+(SELECT c.id_contract,foo.id_technique,foo.amount_of_tech_is_needed,foo.type_of_work FROM contracts as c  NATURAL INNER JOIN 
+(SELECT * FROM type_of_work_tech NATURAL INNER JOIN type_of_work) as foo WHERE (c.date_of_begin > '2010-01-01' AND c.date_of_end < '2017-06-03')) as foo1 LEFT JOIN (SELECT * FROM (SELECT * FROM technique NATURAL INNER JOIN subcontractors_technique_amount) as la NATURAL INNER JOIN 
+(SELECT * FROM contract_subcontractor NATURAL INNER JOIN subcontractors) AS fee) AS fee1 ON (fee1.id_contract = foo1.id_contract AND fee1.id_technique = foo1.id_technique) WHERE (fee1.technique = 'Auto-dumptruck' AND (fee1.amount_of_tech - foo1.amount_of_tech_is_needed)<0);
+Позволяет диспетчеру увидеть нехватку техники на период (конкретную дату) у данного субподрядчика на данный контракт, чтобы перебросить технику из соседнего региона (диспетчер знает связь контракт-субподрядчик), а наличие свободной техники обеспечивается запросом 1(сложный).
+Пояснение: Oтрицательное значение количества техники означает нехватку данного количества техники у субподрядчика для исполнения контракта.
+
+3)SELECT foo1.id_contract,foo1.id_technique,(foo1.amount_of_tech_is_needed * fee1.fuel_per_hour * 8 * (foo1.date_of_end-foo1.date_of_begin)) as full_fuel_needs,foo1.type_of_work,fee1.amount_of_tech,(foo1.date_of_end-foo1.date_of_begin) as days FROM 
+(SELECT c.id_contract,foo.id_technique,foo.amount_of_tech_is_needed,foo.type_of_work,c.date_of_begin,date_of_end FROM contracts as c  NATURAL INNER JOIN 
+(SELECT * FROM type_of_work_tech NATURAL INNER JOIN type_of_work) as foo) as foo1 LEFT JOIN (SELECT * FROM technique NATURAL INNER JOIN
+(SELECT * FROM subcontractors_technique_amount NATURAL INNER JOIN 
+(SELECT * FROM contract_subcontractor NATURAL INNER JOIN subcontractors) AS fee) AS fee2)AS fee1 ON (fee1.id_contract = foo1.id_contract AND fee1.id_technique = foo1.id_technique) ORDER BY fee1.id_contract;
+Позволяет оценить расход топлива на выполнение контракта по каждому виду техники.
+
+
+Сложные запросы с группировкой:
+
+1)SELECT six.work_area,SUM(six.fuel_per_hour)*8 as fuel_needs_for_today FROM (SELECT * FROM (SELECT one.area_id_len_obl,one.subcontractor,one.area,two.id_contract,two.work_area,two.stage_of_work,two.id_type_of_work FROM (SELECT * FROM subcontractors NATURAL INNER JOIN len_obl) as one NATURAL INNER JOIN (SELECT * FROM contracts NATURAL INNER JOIN contract_subcontractor WHERE (contracts.stage_of_work = 'in progress')) as two) as three NATURAL INNER JOIN (SELECT * FROM technique NATURAL INNER JOIN (SELECT * FROM type_of_work_tech NATURAL INNER JOIN type_of_work) as four) as five) as six GROUP BY (six.work_area);
+Позволяет получить список районов, в которых ведутся работы на сегодняшний день с указанием количества (на сегодняшний день) топлива по каждому району. Если применим ограничения по району и несложной функции SUM(), позволяет получить топливо для РЕГИОНА, необходимо на сегодняшний день. Данный запрос может быть актуален для выделения средств на закупку топлива.
+
+2)SELECT foo1.subcontractor,foo1.dispatcher_telephone,foo.days_left FROM (SELECT * FROM subcontractors NATURAL INNER JOIN contract_subcontractor) as foo1 NATURAL INNER JOIN (SELECT c.id_contract,(c.date_of_end-NOW()) as days_left FROM contracts as c WHERE (c.stage_of_work LIKE 'in progress') GROUP BY c.id_contract) as foo;
+Позволяет диспетчеру получить список контрактов, находящихся в работе у субподрядчиков с информацией о количестве дней, оставшихся до завершения контракта. (для передачи актуальных данных в бухгалтерию предприятия)
